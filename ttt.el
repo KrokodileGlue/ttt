@@ -1,4 +1,4 @@
-;;; ttt.el --- Tic Tac Toe in Emacs Lisp.
+;;; ttt.el --- Tic-Tac-Toe in Emacs Lisp.
 
 ;;; Commentary:
 ;;; Start a game of Tic Tac Toe with `M-x ttt`.
