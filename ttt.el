@@ -161,7 +161,6 @@
   (interactive)
   (switch-to-buffer "*tic-tac-toe*")
   (ttt-mode)
-  (text-scale-adjust 10)
   (setq ttt-x-score 0)
   (setq ttt-o-score 0)
   (ttt-init)
