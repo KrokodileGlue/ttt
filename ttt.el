@@ -1,7 +1,7 @@
 ;;; ttt.el --- Tic-Tac-Toe in Emacs Lisp.
 
 ;;; Commentary:
-;;; Start a game of Tic Tac Toe with `M-x ttt`.
+;;; Start a game of Tic-Tac-Toe with `M-x ttt`.
 ;;; Based on https://www.youtube.com/watch?v=gk39mp8Vy4M
 
 ;;; Code:
@@ -157,7 +157,7 @@
            (if (> ttt-x-score ttt-o-score) ?\X ?\O)))
 
 (defun ttt ()
-  "Play Tic Tac Toe."
+  "Start a game of Tic-Tac-Toe."
   (interactive)
   (switch-to-buffer "*tic-tac-toe*")
   (ttt-mode)
