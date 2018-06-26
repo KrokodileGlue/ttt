@@ -2,7 +2,9 @@
 
 ;;; Commentary:
 ;;; Start a game of Tic-Tac-Toe with `M-x ttt`.
-;;; Based on https://www.youtube.com/watch?v=gk39mp8Vy4M
+
+;;; Version: 0.1beta
+;;; URL: https://github.com/KrokodileGlue/ttt
 
 ;;; Code:
 
