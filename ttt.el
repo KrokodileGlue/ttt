@@ -31,18 +31,161 @@
 ;; This package provides a command and major mode for playing
 ;; two-player games of tic-tac-toe.
 
+;; TODO:
+;; - Handle server death cleanly.
+;; - Implement a bot to play against.
+
 ;;; Code:
 
+(require 'cl-macs)			; For cl-defun/return-from.
+
+;;; Variables.
+
 (defvar ttt-board nil)
-(defvar ttt-player nil)
+(defvar ttt-buffer "*tic-tac-toe*")
+(defvar ttt-player nil)			; The current player's symbol.
+(defvar ttt-local-player nil)		; The local player's symbol.
 
 (defvar ttt-x-score nil)
 (defvar ttt-o-score nil)
 
+;; Two states: "menu" and "game".
+(defvar ttt-state nil)
+
+;; Three modes: "local", "network", and "bot".
+(defvar ttt-mode nil)
+
+;; Network variables.
+
+(defvar ttt-server-clients '())
+(defvar ttt-client-connection-timeout 3)
+(defvar ttt-server-name "ttt-server")
+(defvar ttt-client-name "ttt-client")
+(defvar ttt-port 10000)
+(defvar ttt-server nil)
+
+(defvar ttt-client-connection nil)
+(defvar ttt-is-host nil)
+(defvar ttt-timer nil)
+
 (define-derived-mode ttt-mode special-mode "ttt"
   (define-key ttt-mode-map (kbd "RET") 'ttt-mark))
 
+;;; Server code.
+
+(defun ttt-server-start ()
+  "Start the ttt multi-player server."
+  (setq ttt-server-clients '())
+  (setq ttt-server
+	(make-network-process
+	 :name      ttt-server-name
+	 :service   ttt-port
+	 :buffer    ttt-buffer
+	 :filter   'ttt-server-filter
+	 :sentinel 'ttt-server-sentinel
+	 :server    t
+	 :family   'ipv4)))
+
+(defun ttt-server-stop ()
+  "Stop the ttt multi-player server."
+  (while ttt-server-clients
+    (delete-process (car (car ttt-server-clients)))
+    (setq ttt-server-clients (cdr ttt-server-clients)))
+  (delete-process ttt-server))
+
+(defun ttt-server-sentinel (proc msg)
+  "Catch change in @PROC connection as @MSG."
+  (when (string= msg "connection broken by remote peer\n")
+    (message "Your opponent has quit." proc)))
+
+(cl-defun ttt-server-filter (proc s)
+  "Receive incoming messages from @PROC as @S."
+  (unless (assoc proc ttt-server-clients) ; We have a new client!
+    (setq ttt-server-clients (cons (cons proc "") ttt-server-clients))
+    (message "New tic-tac-toe client from %s!" proc))
+  (when (equal s "getboard")
+    (process-send-string
+     proc
+     (with-current-buffer ttt-buffer
+       (buffer-string)))
+    (return-from ttt-server-filter))
+  (let ((p (- (string-to-number s) 42)))
+    (aset ttt-board
+	  (if (> p 6)
+	      (- p 2)
+	    (if (> p 2)
+		(- p 1)
+	      p))
+	  ttt-player))
+  (unless (ttt-check-winning-state)
+    (ttt-swap-players)
+    (ttt-render)))
+
+(defun ttt-client-connect (addr)
+  "Open a tic-tac-toe connection as a client with @ADDR."
+  (setq ttt-client-connection
+	(make-network-process
+	 :name      ttt-client-name
+	 :service   ttt-port
+	 :buffer    ttt-buffer
+	 :sentinel 'ttt-client-sentinel
+	 :family   'ipv4)))
+
+(defun ttt-client-sentinel (proc s)
+  "Receive connection change messages from @PROC as @S."
+  (unless (or (string= s "open\n")
+	      (string-prefix-p "open from " s))
+    (cancel-timer ttt-timer)
+    (ttt-client-disconnect)
+    (ttt-game-over)))
+
+(defun ttt-client-disconnect ()
+  "Disconnect from the tic-tac-toe host."
+  (delete-process ttt-client-connection))
+
+(defun ttt-client-send (s)
+  "Send @S to the tic-tac-toe host."
+  (process-send-string ttt-client-connection s))
+
+(defun ttt-client-update-board ()
+  "Update the client board by asking the host for it."
+  (with-current-buffer ttt-buffer
+    (let ((inhibit-read-only t) (point (point)))
+      (erase-buffer)
+      (ttt-client-send "getboard")
+      (accept-process-output
+       ttt-client-connection
+       ttt-client-connection-timeout)
+      (goto-char (point-min))
+      (re-search-forward "Current player: ")
+      (setq ttt-player (char-after))
+      (goto-char (point-min))
+      (re-search-forward "X score: ")
+      (setq ttt-x-score (string-to-number (char-to-string (char-after))))
+      (goto-char (point-min))
+      (re-search-forward "O score: ")
+      (setq ttt-o-score (string-to-number (char-to-string (char-after))))
+      (goto-char point))))
+
+;;; Gameplay code.
+
 ;; Board functions.
+
+(defun ttt-render ()
+  "Render the board into `ttt-buffer`."
+  (with-current-buffer ttt-buffer
+    (let ((inhibit-read-only t)
+	  (point (point)))
+      (erase-buffer)
+      (insert (format "Play mode: %s\n" ttt-mode))
+      (insert (format "X score: %d\n" ttt-x-score))
+      (insert (format "O score: %d\n" ttt-o-score))
+      (dotimes (x 3)
+	(dotimes (y 3)
+	  (insert-char (ttt-get x y)))
+	(insert "\n"))
+      (insert (format "Current player: %c\n" ttt-player))
+      (goto-char point))))
 
 (defun ttt-get (x y)
   "Fetch the (@X,@Y) cell from the board."
@@ -98,7 +241,7 @@
 (defun ttt-swap-players ()
   "Swap player from X to O, otherwise O to X."
   (setq ttt-player
-        (if (eq ttt-player ?\X) ?\O ?\X)))
+        (if (char-equal ttt-player ?\X) ?\O ?\X)))
 
 (defun ttt-same (x y z)
   "Whether squares @X, @Y, and @Z are all owned by the same player."
@@ -120,78 +263,127 @@
 (defun ttt-init ()
   "Start a new round."
   (setq ttt-board (make-vector 9 ?\.))
-  (setq ttt-player ?\X)
+  (ttt-render)
+  (goto-char (point-min))
+  (forward-line)
+  (forward-line)
+  (forward-line))
 
+(defun ttt-check-winning-state ()
+  "Check for ties/wins and adjust scores appropriately."
+  (let ((w (or (ttt-winning) (ttt-full))))
+    (if (ttt-full)
+	(progn
+	  (message "Tie!")
+	  (ttt-init))
+      (when (ttt-winning)
+	(if (char-equal ttt-player ?\X)
+	    (setq ttt-x-score (+ 1 ttt-x-score))
+	  (setq ttt-o-score (+ 1 ttt-o-score)))
+	(if (or (>= (+ ttt-x-score ttt-o-score) 3)
+		(= ttt-x-score 2)
+		(= ttt-o-score 2))
+	    (ttt-game-over)
+	  (ttt-init))))
+    w))
+
+;; User functions.
+
+(cl-defun ttt-mark ()
+  "Mark a square on the board or select a menu item."
+  (interactive)
+
+  (when (and
+	 (string= ttt-mode "network")
+	 (not (char-equal ttt-player ttt-local-player)))
+    (message "You are waiting for your opponent to make a move.")
+    (return-from ttt-mark))
+
+  ;; We might be looking at the menu...
+
+  (when (equal ttt-state "menu")
+    (setq ttt-mode
+	  (if (equal (line-number-at-pos) 3) "local"
+	    (if (equal (line-number-at-pos) 4) "network"
+	      "bot")))
+    (setq ttt-state "game")
+    (when (equal ttt-mode "network")
+      (setq ttt-is-host (y-or-n-p "Are you the host? "))
+      (if ttt-is-host
+	  (ttt-server-start)
+	(setq ttt-local-player ?\O)
+	(ttt-client-connect (read-string
+			     "Enter the host's address (default 127.0.0.1): "
+			     nil
+			     nil
+			     "127.0.0.1"))
+	(setq ttt-timer (run-at-time "1 sec" 1 'ttt-client-update-board))
+	(add-hook 'kill-buffer-hook (lambda () (cancel-timer ttt-timer)) t t)))
+    (ttt-init)
+    (return-from ttt-mark))
+
+  (when (ttt-is-player
+	 (ttt-get (- (line-number-at-pos) 4)
+		  (current-column)))
+    (message "You may not mark an already-marked square.")
+    (return-from ttt-mark))
+
+  (when (or (> (current-column) 2)
+	    (> (- (line-number-at-pos) 3) 3)
+	    (< (line-number-at-pos) 3))
+    (message "You must mark a square.")
+    (return-from ttt-mark))
+
+  ;; Otherwise we're marking a square (and are allowed to do so).
+
+  (when (equal ttt-mode "network")
+    (unless ttt-is-host
+      (ttt-client-send (number-to-string (point)))
+      (ttt-swap-players)
+      (return-from ttt-mark)))
+
+  (ttt-set
+   (- (line-number-at-pos) 4)
+   (current-column)
+   ttt-player)
+
+  (unless (ttt-check-winning-state)
+    (ttt-swap-players)
+    (ttt-render)))
+
+(defun ttt-game-over ()
+  "Notify the user of who won."
+  (when (and (string= ttt-mode "network")
+	     ttt-is-host)
+    (ttt-server-stop))
+  (kill-buffer)
+  (message "Player %c has won!"
+	   (if (> ttt-x-score ttt-o-score) ?\X ?\O)))
+
+(defun ttt-menu ()
+  "Present a menu allowing the user to choose whatever gameplay mode they wish to play."
   (let ((inhibit-read-only t))
     (erase-buffer)
-    (insert (format "X score: %d\n" ttt-x-score))
-    (insert (format "O score: %d\n" ttt-o-score))
-    (dotimes (x 3)
-      (dotimes (y 3)
-        (insert (ttt-get x y)))
-      (insert "\n")))
+    (insert "Welcome to Tic-Tac-Toe!\n")
+    (insert "Select a mode:\n")
+    (insert "1. Local two-player\n")
+    (insert "2. Networked two-player\n")
+    (insert "3. Single-player\n"))
   (goto-char (point-min))
   (forward-line)
   (forward-line))
 
-;; User functions.
-
-(defun ttt-mark ()
-  "Mark a square on the board."
-  (interactive)
-
-  (if (or (> (current-column) 2)
-          (> (- (line-number-at-pos) 2) 3)
-          (< (line-number-at-pos) 3))
-      (message "You must mark a square.")
-
-    (if (ttt-is-player
-         (ttt-get (- (line-number-at-pos) 3)
-                  (current-column)))
-        (message "You may not mark an already-marked square.")
-
-      (ttt-set
-       (- (line-number-at-pos) 3)
-       (current-column)
-       ttt-player)
-
-      (let ((inhibit-read-only t))
-        (delete-char 1)
-        (insert ttt-player)
-        (backward-char 1))
-
-      (if (ttt-full)
-          (progn
-            (message "Tie!")
-            (ttt-init))
-        (when (ttt-winning)
-          (if (char-equal ttt-player ?\X)
-              (setq ttt-x-score (+ 1 ttt-x-score))
-            (setq ttt-o-score (+ 1 ttt-o-score)))
-          (message "Player %c has won this round." ttt-player)
-          (if (or (>= (+ ttt-x-score ttt-o-score) 3)
-                  (= ttt-x-score 2)
-                  (= ttt-o-score 2))
-              (ttt-game-over)
-            (ttt-init))))
-
-      (ttt-swap-players))))
-
-(defun ttt-game-over ()
-  "Notify the user of who won."
-  (kill-buffer)
-  (message "Player %c has won!"
-           (if (> ttt-x-score ttt-o-score) ?\X ?\O)))
-
 (defun ttt ()
   "Start a game of Tic-Tac-Toe."
   (interactive)
-  (switch-to-buffer "*tic-tac-toe*")
+  (switch-to-buffer ttt-buffer)
   (ttt-mode)
   (setq ttt-x-score 0)
   (setq ttt-o-score 0)
-  (ttt-init)
-  (message "Welcome to Tic-Tac-Toe!"))
+  (setq ttt-local-player ?\X)
+  (setq ttt-player ?\X)
+  (setq ttt-state "menu")
+  (ttt-menu))
 
 (provide 'ttt)
 
