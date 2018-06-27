@@ -37,7 +37,7 @@
 
 ;;; Code:
 
-(require 'cl-macs)			; For cl-defun/return-from.
+(require 'cl-lib)			; For cl-defun/return-from.
 
 ;;; Variables.
 
