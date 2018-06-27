@@ -108,7 +108,7 @@
      proc
      (with-current-buffer ttt-buffer
        (buffer-string)))
-    (return-from ttt-server-filter))
+    (cl-return-from ttt-server-filter))
   (let ((p (- (string-to-number s) 42)))
     (aset ttt-board
 	  (if (> p 6)
@@ -297,7 +297,7 @@
 	 (string= ttt-mode "network")
 	 (not (char-equal ttt-player ttt-local-player)))
     (message "You are waiting for your opponent to make a move.")
-    (return-from ttt-mark))
+    (cl-return-from ttt-mark))
 
   ;; We might be looking at the menu...
 
@@ -320,19 +320,19 @@
 	(setq ttt-timer (run-at-time "1 sec" 1 'ttt-client-update-board))
 	(add-hook 'kill-buffer-hook (lambda () (cancel-timer ttt-timer)) t t)))
     (ttt-init)
-    (return-from ttt-mark))
+    (cl-return-from ttt-mark))
 
   (when (ttt-is-player
 	 (ttt-get (- (line-number-at-pos) 4)
 		  (current-column)))
     (message "You may not mark an already-marked square.")
-    (return-from ttt-mark))
+    (cl-return-from ttt-mark))
 
   (when (or (> (current-column) 2)
 	    (> (- (line-number-at-pos) 3) 3)
 	    (< (line-number-at-pos) 3))
     (message "You must mark a square.")
-    (return-from ttt-mark))
+    (cl-return-from ttt-mark))
 
   ;; Otherwise we're marking a square (and are allowed to do so).
 
@@ -340,7 +340,7 @@
     (unless ttt-is-host
       (ttt-client-send (number-to-string (point)))
       (ttt-swap-players)
-      (return-from ttt-mark)))
+      (cl-return-from ttt-mark)))
 
   (ttt-set
    (- (line-number-at-pos) 4)
