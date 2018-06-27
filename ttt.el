@@ -127,6 +127,7 @@
 	(make-network-process
 	 :name      ttt-client-name
 	 :service   ttt-port
+	 :host      addr
 	 :buffer    ttt-buffer
 	 :sentinel 'ttt-client-sentinel
 	 :family   'ipv4)))
