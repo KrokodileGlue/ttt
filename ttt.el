@@ -2,7 +2,7 @@
 
 ;; Author: KrokodileGlue <KrokodileGlue@outlook.com>
 ;; Keywords: game games two-player inane diversion
-;; Version: 0.1beta
+;; Version: 0.5beta
 ;; URL: https://github.com/KrokodileGlue/ttt
 
 ;; This file is not part of GNU Emacs.
