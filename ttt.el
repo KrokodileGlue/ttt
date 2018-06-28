@@ -96,7 +96,7 @@
 (defun ttt-server-sentinel (proc msg)
   "Catch change in @PROC connection as @MSG."
   (when (string= msg "connection broken by remote peer\n")
-    (message "Your opponent has quit." proc)))
+    (message "Your opponent has quit.")))
 
 (cl-defun ttt-server-filter (proc s)
   "Receive incoming messages from @PROC as @S."
